@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import rospy
 from datetime import datetime
@@ -9,20 +9,20 @@ from rtcm_msgs.msg import Message
 from base64 import b64encode
 from threading import Thread
 
-from httplib import HTTPConnection
-from httplib import IncompleteRead
+from http.client import HTTPConnection
+from http.client import IncompleteRead
 
 ''' This is to fix the IncompleteRead error
     http://bobrochel.blogspot.com/2010/11/bad-servers-chunked-encoding-and.html'''
-import httplib
+import http.client
 def patch_http_response_read(func):
     def inner(*args):
         try:
             return func(*args)
-        except httplib.IncompleteRead, e:
+        except http.client.IncompleteRead as e:
             return e.partial
     return inner
-httplib.HTTPResponse.read = patch_http_response_read(httplib.HTTPResponse.read)
+http.client.HTTPResponse.read = patch_http_response_read(http.client.HTTPResponse.read)
 
 class ntripconnect(Thread):
     def __init__(self, ntc):
@@ -37,11 +37,11 @@ class ntripconnect(Thread):
             'Ntrip-Version': 'Ntrip/2.0',
             'User-Agent': 'NTRIP ntrip_ros',
             'Connection': 'close',
-            'Authorization': 'Basic ' + b64encode(self.ntc.ntrip_user + ':' + str(self.ntc.ntrip_pass))
+            'Authorization': 'Basic ' + b64encode("{}:{}".format(self.ntc.ntrip_user, self.ntc.ntrip_pass).encode('utf-8')).decode('utf-8')
         }
         try:
             connection = HTTPConnection(self.ntc.ntrip_server) #, timeout=5.0)
-            connection.request('GET', '/'+self.ntc.ntrip_stream, self.ntc.nmea_gga, headers)
+            connection.request('GET', '/' + self.ntc.ntrip_stream, self.ntc.nmea_gga, headers)
             response = connection.getresponse()
         except:
             rospy.logerr("NTRIP-client - ERROR: Not able to connect to NTRIP-server!")
@@ -49,8 +49,9 @@ class ntripconnect(Thread):
 
         rospy.loginfo("NTRIP-client - Connection to NTRIP-server established.")
 
-        if response.status != 200: raise Exception("blah")
-        buf = ""
+        if response.status != 200:
+            raise Exception("blah")
+        buf = b""
         rmsg = Message()
         restart_count = 0
         while not self.stop:
@@ -72,14 +73,14 @@ class ntripconnect(Thread):
             self.time_of_last_recv_msg = rospy.get_rostime()
 
             if len(data) != 0:
-                if ord(data[0]) == 211:
+                if data[0] == 211:
                     buf += data
                     data = response.read(2)
                     buf += data
-                    cnt = ord(data[0]) * 256 + ord(data[1])
+                    cnt = data[0] * 256 + data[1]
                     data = response.read(2)
                     buf += data
-                    typ = (ord(data[0]) * 256 + ord(data[1])) / 16
+                    typ = (data[0] * 256 + data[1]) / 16
                     #print (str(datetime.now()), cnt, typ)
                     cnt = cnt + 1
                     for x in range(cnt):
@@ -89,7 +90,7 @@ class ntripconnect(Thread):
                     rmsg.header.seq += 1
                     rmsg.header.stamp = rospy.get_rostime()
                     self.ntc.pub.publish(rmsg)
-                    buf = ""
+                    buf = b""
                 #else: rospy.loginfo(data)
             else:
                 ''' If zero length data, close connection and reopen it '''
@@ -100,7 +101,7 @@ class ntripconnect(Thread):
                 connection.request('GET', '/'+self.ntc.ntrip_stream, self.ntc.nmea_gga, headers)
                 response = connection.getresponse()
                 if response.status != 200: raise Exception("blah")
-                buf = ""
+                buf = b""
 
         connection.close()
         rospy.logerr("NTRIP-client - ERROR: Connection-thread stopped!")
@@ -144,4 +145,3 @@ class ntripclient:
 if __name__ == '__main__':
     c = ntripclient()
     c.run()
-
